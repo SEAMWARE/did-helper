@@ -21,7 +21,7 @@ type DidServer struct {
 	Logger         *zap.Logger
 }
 
-func NewDidServer(didJSON string, tlsCRT string, port int, basepath string) *DidServer {
+func NewDidServer(didJSON string, tlsCRT string, port int, basepath string, didFilename string, materialDir string) *DidServer {
 	logger, err := zap.NewProduction()
 	if err != nil {
 		log.Fatalf("Failed to initialize Zap logger: %v", err)
@@ -36,10 +36,25 @@ func NewDidServer(didJSON string, tlsCRT string, port int, basepath string) *Did
 
 	var didPath string
 	var certPath = basepath + "/.well-known/tls.crt"
+	// Ensure basepath has no trailing slash
 	if basepath == "" {
-		didPath = "/.well-known/did.json"
+		didPath = "/.well-known/" + didFilename
 	} else {
-		didPath = basepath + "/did.json"
+		didPath = basepath + "/" + didFilename
+	}
+
+	// If a material directory is provided, expose it under the basepath
+	// (or under /.well-known/ when basepath is empty) so files are
+	// accessible alongside the DID file.
+	if materialDir != "" {
+		var materialBase string
+		if basepath == "" {
+			materialBase = "/.well-known/"
+		} else {
+			materialBase = basepath + "/"
+		}
+		fs := http.FileServer(http.Dir(materialDir))
+		mux.Handle(materialBase, http.StripPrefix(materialBase, fs))
 	}
 
 	mux.HandleFunc(didPath, s.handleDidJSON)
