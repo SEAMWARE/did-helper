@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/itzg/go-flagsfiller"
@@ -105,9 +106,47 @@ func main() {
 		if cfg.DidType == "key" {
 			materialDir = "/cert"
 		}
+
+		// Ensure materialDir exists and populate it so the server can serve files from there.
+		if materialDir != "" {
+			if err := os.MkdirAll(materialDir, 0755); err != nil {
+				zap.L().Sugar().Warnf("Could not create material dir %s: %v", materialDir, err)
+			} else {
+				// Write the certificate that will be served as tls.crt
+				if cert != nil {
+					if err := os.WriteFile(filepath.Join(materialDir, "tls.crt"), cert, 0644); err != nil {
+						zap.L().Sugar().Warnf("Failed to write tls.crt to %s: %v", materialDir, err)
+					}
+				}
+
+				// Copy provided cert/key/keystore files into materialDir so they are accessible
+				if cfg.CertPath != "" {
+					dst := filepath.Join(materialDir, filepath.Base(cfg.CertPath))
+					if err := did.CopyFile(cfg.CertPath, dst); err != nil {
+						zap.L().Sugar().Warnf("Failed to copy cert %s to %s: %v", cfg.CertPath, dst, err)
+					}
+				}
+				if cfg.KeyPath != "" {
+					dst := filepath.Join(materialDir, filepath.Base(cfg.KeyPath))
+					if err := did.CopyFile(cfg.KeyPath, dst); err != nil {
+						zap.L().Sugar().Warnf("Failed to copy key %s to %s: %v", cfg.KeyPath, dst, err)
+					}
+				}
+				if cfg.KeystorePath != "" {
+					// ensure keystore is copied to a consistent name so server serves /cert/cert.pfx
+					dst := filepath.Join(materialDir, "cert.pfx")
+					if err := did.CopyFile(cfg.KeystorePath, dst); err != nil {
+						zap.L().Sugar().Warnf("Failed to copy keystore %s to %s: %v", cfg.KeystorePath, dst, err)
+					}
+				}
+			}
+		}
+
 		server := did.NewDidServer(string(fileContent), string(cert), cfg.ServerPort, webUrl.Path, didFilename, materialDir)
 		server.Start()
 	} else {
 		fmt.Println("Output: ", string(fileContent))
 	}
 }
+
+

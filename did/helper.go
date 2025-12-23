@@ -12,6 +12,9 @@ import (
 	"errors"
 	"net/url"
 	"strings"
+	"io"
+	"os"
+	"path/filepath"
 
 	"github.com/lestrrat-go/jwx/v3/jwk"
 	"github.com/trustbloc/kms-go/doc/util/fingerprint"
@@ -156,4 +159,33 @@ func generateJwk(cert *x509.Certificate) (jwkKey jwk.Key, err error) {
 	}
 	jwkKey, err = jwkPrivkey.PublicKey()
 	return
+}
+
+// CopyFile copies a file from src to dst.
+func CopyFile(src, dst string) error {
+	// avoid copying a file onto itself
+	if absSrc, err := filepath.Abs(src); err == nil {
+		if absDst, err2 := filepath.Abs(dst); err2 == nil {
+			if absSrc == absDst {
+				return nil
+			}
+		}
+	}
+
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = out.Close() }()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Sync()
 }

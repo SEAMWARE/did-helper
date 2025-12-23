@@ -53,7 +53,7 @@ if [[ -z "${KEYSTORE_PATH:-}" ]] && [[ -z "${CERT_URL:-}" ]]; then
 
   CURRENT_KEYSTORE="/cert/cert.pfx"
 else
-    CURRENT_KEYSTORE="${KEYSTORE_PATH:-}"
+  CURRENT_KEYSTORE="${KEYSTORE_PATH:-}"
 fi
 
 args=()
