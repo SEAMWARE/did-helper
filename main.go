@@ -19,6 +19,9 @@ func init() {
 	zap.ReplaceGlobals(zap.Must(zap.NewDevelopment()))
 }
 
+// defaultMaterialDir is the directory where key material is served from.
+const defaultMaterialDir = "/cert"
+
 func main() {
 	var cfg did.Config
 	var fileContent []byte
@@ -104,7 +107,7 @@ func main() {
 		}
 		materialDir := ""
 		if cfg.DidType == "key" {
-			materialDir = "/cert"
+			materialDir = defaultMaterialDir
 		}
 
 		// Ensure materialDir exists and populate it so the server can serve files from there.
