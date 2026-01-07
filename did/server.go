@@ -21,7 +21,7 @@ type DidServer struct {
 	Logger         *zap.Logger
 }
 
-func NewDidServer(didJSON string, tlsCRT string, port int, basepath string, didFilename string, materialDir string) *DidServer {
+func NewDidServer(didJSON string, tlsCRT string, port int, basepath string, didFilename string) *DidServer {
 	logger, err := zap.NewProduction()
 	if err != nil {
 		log.Fatalf("Failed to initialize Zap logger: %v", err)
@@ -41,20 +41,6 @@ func NewDidServer(didJSON string, tlsCRT string, port int, basepath string, didF
 		didPath = "/.well-known/" + didFilename
 	} else {
 		didPath = basepath + "/" + didFilename
-	}
-
-	// If a material directory is provided, expose it under the basepath
-	// (or under /.well-known/ when basepath is empty) so files are
-	// accessible alongside the DID file.
-	if materialDir != "" {
-		var materialBase string
-		if basepath == "" {
-			materialBase = "/.well-known/"
-		} else {
-			materialBase = basepath + "/"
-		}
-		fs := http.FileServer(http.Dir(materialDir))
-		mux.Handle(materialBase, http.StripPrefix(materialBase, fs))
 	}
 
 	mux.HandleFunc(didPath, s.handleDidJSON)
@@ -92,6 +78,7 @@ func (s *DidServer) handleTlsCRT(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/x-x509-ca-cert")
 	w.WriteHeader(http.StatusOK)
+
 	if _, err := w.Write([]byte(s.TlsCRTContent)); err != nil {
 		s.Logger.Error("Error writing response for /tls.crt", zap.Error(err))
 	} else {
