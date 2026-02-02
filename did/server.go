@@ -2,6 +2,7 @@ package did
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net/http"
@@ -11,25 +12,52 @@ import (
 
 	"os/signal"
 
+	"encoding/base64"
+	"encoding/json"
+
 	"go.uber.org/zap"
 )
 
+type JWKS struct {
+	Keys []JWK `json:"keys"`
+}
+type JWK struct {
+	Kid     string   `json:"kid"`
+	Kty     string   `json:"kty"`
+	Alg     string   `json:"alg"`
+	Use     string   `json:"use"`
+	X5c     []string `json:"x5c"`
+	X5t     string   `json:"x5t"`
+	X5tS256 string   `json:"x5t#S256"`
+	Crv     string   `json:"crv"`
+	X       string   `json:"x"`
+	Y       string   `json:"y"`
+}
+
+type BaseServer struct {
+	Server *http.Server
+	Logger *zap.Logger
+}
+type KeycloakServer struct {
+	BaseServer
+	KeycloakHost        string
+	Transformer         *DIDTransformer
+	IgnoreTlsValidation bool
+}
 type DidServer struct {
+	BaseServer
 	DidJSONContent string
 	TlsCRTContent  string
-	Server         *http.Server
-	Logger         *zap.Logger
+}
+type ErrorResponse struct {
+	Error   string `json:"error"`
+	Message string `json:"message"`
 }
 
 func NewDidServer(didJSON string, tlsCRT string, port int, basepath string, didFilename string) *DidServer {
 	logger, err := zap.NewProduction()
 	if err != nil {
 		log.Fatalf("Failed to initialize Zap logger: %v", err)
-	}
-	s := &DidServer{
-		DidJSONContent: didJSON,
-		TlsCRTContent:  tlsCRT,
-		Logger:         logger,
 	}
 	basepath = strings.TrimSuffix(basepath, "/")
 	mux := http.NewServeMux()
@@ -43,16 +71,52 @@ func NewDidServer(didJSON string, tlsCRT string, port int, basepath string, didF
 		didPath = basepath + "/" + didFilename
 	}
 
+	s := &DidServer{
+		DidJSONContent: didJSON,
+		TlsCRTContent:  tlsCRT,
+		BaseServer: BaseServer{
+			Logger: logger,
+			Server: &http.Server{
+				Addr:         fmt.Sprintf(":%d", port),
+				Handler:      mux,
+				ReadTimeout:  5 * time.Second,
+				WriteTimeout: 10 * time.Second,
+			},
+		},
+	}
+
 	mux.HandleFunc(didPath, s.handleDidJSON)
 	mux.HandleFunc(certPath, s.handleTlsCRT)
 
-	s.Server = &http.Server{
-		Addr:         fmt.Sprintf(":%d", port),
-		Handler:      mux,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
+	return s
+}
+
+func NewKeycloakServer(keycloakHost string, port int, ignoreTlsValidation bool) *KeycloakServer {
+
+	logger, err := zap.NewProduction()
+	if err != nil {
+		log.Fatalf("Failed to initialize Zap logger: %v", err)
+	}
+	if ignoreTlsValidation {
+		logger.Warn("Ignore TLS Validation is enabled. Do not use it in production")
+	}
+	mux := http.NewServeMux()
+	s := &KeycloakServer{
+		KeycloakHost:        keycloakHost,
+		Transformer:         NewDIDTransformer(),
+		IgnoreTlsValidation: ignoreTlsValidation,
+		BaseServer: BaseServer{
+			Logger: logger,
+			Server: &http.Server{
+				Addr:         fmt.Sprintf(":%d", port),
+				Handler:      mux,
+				ReadTimeout:  5 * time.Second,
+				WriteTimeout: 10 * time.Second,
+			},
+		},
 	}
 
+	mux.HandleFunc("/{realm}/did.json", s.handlerRealm)
 	return s
 }
 
@@ -85,7 +149,66 @@ func (s *DidServer) handleTlsCRT(w http.ResponseWriter, r *http.Request) {
 		s.Logger.Debug("Response sent successfully", zap.Int("status", http.StatusOK))
 	}
 }
-func (s *DidServer) Start() error {
+
+func (s *KeycloakServer) handlerRealm(w http.ResponseWriter, r *http.Request) {
+
+	realmBase64 := r.PathValue("realm")
+	if realmBase64 == "" {
+		s.Logger.Warn("Request received without realm")
+		http.Error(w, "Missing realm", http.StatusBadRequest)
+		return
+	}
+	realmBytes, err := base64.StdEncoding.DecodeString(realmBase64)
+	if err != nil {
+		s.Logger.Warn("Error decoding realm")
+		http.Error(w, "Realm is not a valid realm", http.StatusBadRequest)
+		return
+	}
+	realm := string(realmBytes)
+	keycloakURL := fmt.Sprintf("%s/realms/%s/protocol/openid-connect/certs", s.KeycloakHost, realm)
+	tr := &http.Transport{
+		// Configuración de TLS para ignorar la verificación
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: s.IgnoreTlsValidation},
+	}
+	client := http.Client{
+		Timeout:   5 * time.Second,
+		Transport: tr,
+	}
+	resp, err := client.Get(keycloakURL)
+	if err != nil {
+		s.Logger.Error("Failed to connect to Keycloak", zap.Error(err), zap.String("url", keycloakURL))
+		s.BaseServer.respondWithError(w, http.StatusBadGateway, "Indentity provider unreachable")
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		s.Logger.Warn("Keycloak returned non-OK status", zap.Int("status", resp.StatusCode), zap.String("realm", realm))
+		s.BaseServer.respondWithError(w, resp.StatusCode, "Realm not found or Keycloak error")
+		return
+	}
+
+	var jwks JWKS
+	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
+		s.Logger.Error("Failed to decode JWKS body", zap.Error(err))
+		s.BaseServer.respondWithError(w, http.StatusInternalServerError, "Invalid response from identity provider")
+		return
+	}
+
+	didDoc, err := s.Transformer.TransformJWKSToDID(&jwks, r.Host, realm)
+	if err != nil {
+		s.Logger.Warn("Transformation failed", zap.Error(err))
+		s.BaseServer.respondWithError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(didDoc); err != nil {
+		s.Logger.Error("Failed to encode JSON response", zap.Error(err))
+	}
+}
+
+func (s *BaseServer) Start() error {
 	s.Logger.Info("Starting server", zap.String("address", s.Server.Addr))
 
 	// Create context to listen for OS signals.
@@ -125,7 +248,17 @@ func (s *DidServer) Start() error {
 	return nil
 }
 
-func (s *DidServer) Shutdown(ctx context.Context) error {
+func (s *BaseServer) Shutdown(ctx context.Context) error {
 	s.Logger.Info("Shutting down server...")
 	return s.Server.Shutdown(ctx)
+}
+
+func (s *BaseServer) respondWithError(w http.ResponseWriter, code int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+
+	json.NewEncoder(w).Encode(ErrorResponse{
+		Error:   http.StatusText(code),
+		Message: message,
+	})
 }
