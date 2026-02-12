@@ -21,23 +21,26 @@ The container can be configured, using the following environment-variables:
 
 | Var | Description | Values |Default  |
 |-----|-------------|---|----------|
-| KEY_TYPE_TO_GENERATE | Type of the key to be generated. RSA is only supported for did:jwk | "EC", "ED-25519" or "RSA" | "EC" |
-| STORE_PASS | Password to be used for the keystore | string | "myPassword" |
-| KEY_ALIAS | Alias for the key inside the keystore | string | "myAlias" |
+| KEYSTORE_PATH | Path to the keystore to be read. | string |
+| KEYSTORE_PASSWORD | Deprecated: Password to be used for the keystore | string | "myPassword" |
+| STORE_PASS | Deprecated: Password to be used for the keystore | string | "myPassword" |
+| CERT_PATH | Path to the PEM certificate | string |
+| KEY_PATH | Path to the key PEM certificate | string |
 | OUTPUT_FORMAT | Output format for the did result file. | "json", "env", "json_jwk" | "json" |
+| OUTPUT_FILE | File to write the did, format depends on the requested format. Will not write the file if empty. | string | "/cert/did.json" |
 | DID_TYPE | Type of the did to generate. | "key", "jwk" or "web" | "key" |
 | KEY_TYPE | Type of the key provided. | "P-256", "P-384" or "ED-25519" | "P-256" |
-| OUTPUT_FILE | File to write the did, format depends on the requested format. Will not write the file if empty. | string | "/cert/did.json" |
 | HOST_URL | Base URL where the DID document will be located, excluding 'did.json'. (e.g., https://example.com/alice for https://example.com/alice/did.json). Required for did:web | |
 | CERT_URL | URL to retrieve the public certificate | string | `HOST_URL` + `/.well-known/tls.crt`
 | RUN_SERVER | Run a server with /did.json and /.well-known/tls.crt endpoints | false
-| SERVER_PORT | Server port | 8080
+| SERVER_PORT | Server port | 8080 |
+| KEY_TYPE_TO_GENERATE | Type of the key to be generated. RSA is only supported for did:jwk | "EC", "ED-25519" or "RSA" | "EC" |
+| KEY_ALIAS | Alias for the key inside the keystore | string | "myAlias" |
 | COUNTRY | Country to be set for the created certificate. | string | "DE" |
 | STATE | State to be set for the created certificate. | string | "Saxony" |
 | LOCALITY | Locality to be set for the created certificate. | string | "Dresden" |
 | ORGANIZATION | Organization to be set for the created certificate. | string | "M&P Operations Inc." |
 | COMMON_NAME | Common name to be set for the created certificate. | string | "www.mp-operations.org" |
-| KEYSTORE_PATH | Path to the keystore | string |
 
 ### Executable
 
@@ -101,24 +104,28 @@ The helper supports the following parameters:
 
 ```shell
 Usage of ./did-helper:
+  -certPath string
+    	Path to the PEM certificate. (env CERT_PATH)
+  -certUrl string
+    	URL to retrieve the public certificate. Defaults to 'hostUrl' + /.well-known/tls.crt (env CERT_URL)
   -didType string
-        Type of the did to generate. did:key, did:jwk and did:web are supported. (default "key")
-  -keyType
-        Type of the did-key to be created. Supported ED-25519, P-256, P-384. (default "P-256")
+    	Type of the DID to generate. did:key and did:jwk are supported. (env DID_TYPE) (default "key")
+  -hostUrl string
+    	Base URL where the DID document will be located, excluding 'did.json'. (env HOST_URL)
+  -keyPath string
+    	Path to the key PEM certificate. (env KEY_PATH)
+  -keyType string
+    	Type of the DID key to be created. Supported: ED-25519, P-256, P-384. (env KEY_TYPE) (default "P-256")
   -keystorePassword string
-        Password for the keystore.
+    	Password for the keystore. (env KEYSTORE_PASSWORD)
   -keystorePath string
-        Path to the keystore to be read.
+    	Path to the keystore to be read. (env KEYSTORE_PATH)
   -outputFile string
-        File to write the did, format depends on the requested format. Will not write the file if empty.
+    	File to write the DID; will not write if empty. (env OUTPUT_FILE)
   -outputFormat string
-        Output format for the did result file. Can be json or env. (default "json")
-  -hostUrl
-        Base URL where the DID document will be located, excluding 'did.json'. (e.g., https://example.com/alice for https://example.com/alice/did.json)
-  -certUrl
-        URL to retrieve the public certificate. Default is 'hostUrl' + /.well-known/. tls.crt
+    	Output format for the DID result file. Can be json, env or json_jwk. (env OUTPUT_FORMAT) (default "json")
+  -port int
+    	Server port. Default 8080. (env SERVER_PORT) (default 8080)
   -server
-        Run a server with /did.json and /.well-known/tls.crt endpoints under hostUrl path (e.g. hostUrl=https://test.com/did -> /did/did.json and /did/.well-known/tls.crt)
-  -port
-        Server port. (default 8080)
+    	Run a server with /did.json and /.well-known/tls.crt endpoints. (env RUN_SERVER)
 ```

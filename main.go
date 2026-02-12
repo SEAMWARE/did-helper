@@ -24,7 +24,7 @@ func main() {
 	var resultingDid string
 	var err error
 
-	filler := flagsfiller.New()
+	filler := flagsfiller.New(flagsfiller.WithEnv(""))
 	err = filler.Fill(flag.CommandLine, &cfg)
 	if err != nil {
 		zap.L().Sugar().Fatal("error reading config. error %s", err)
@@ -108,5 +108,3 @@ func main() {
 		fmt.Println("Output: ", string(fileContent))
 	}
 }
-
-

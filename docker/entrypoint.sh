@@ -59,13 +59,8 @@ fi
 args=()
 
 [[ -n "$CURRENT_KEYSTORE" ]] && args+=("-keystorePath" "$CURRENT_KEYSTORE")
+# legacy support: KEYSTORE_PASS is the new env vars mapped automatically
 [[ -n "$STORE_PASS" ]]       && args+=("-keystorePassword" "$STORE_PASS")
-[[ -n "$OUTPUT_FILE" ]]      && args+=("-outputFile" "$OUTPUT_FILE")
-[[ -n "$OUTPUT_FORMAT" ]]    && args+=("-outputFormat" "$OUTPUT_FORMAT")
-[[ -n "$DID_TYPE" ]]         && args+=("-didType" "$DID_TYPE")
-[[ -n "$KEY_TYPE" ]]         && args+=("-keyType" "$KEY_TYPE")
-[[ -n "$HOST_URL" ]]         && args+=("-hostUrl" "$HOST_URL")
-[[ -n "$CERT_URL" ]]         && args+=("-certUrl" "$CERT_URL")
 
 if [[ "${RUN_SERVER:-}" == "true" ]]; then
     args+=("-server=true")
