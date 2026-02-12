@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"syscall"
@@ -84,7 +85,8 @@ func NewDidServer(didJSON string, tlsCRT string, port int, basepath string, didF
 			},
 		},
 	}
-
+	logger.Info("Base path: " + basepath)
+	logger.Info("Server initialized", zap.String("didPath", didPath), zap.String("certPath", certPath))
 	mux.HandleFunc(didPath, s.handleDidJSON)
 	mux.HandleFunc(certPath, s.handleTlsCRT)
 
@@ -195,7 +197,11 @@ func (s *KeycloakServer) handlerRealm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	didDoc, err := s.Transformer.TransformJWKSToDID(&jwks, r.Host, realm)
+	host, _, err := net.SplitHostPort(r.Host)
+	if err != nil {
+		host = r.Host
+	}
+	didDoc, err := s.Transformer.TransformJWKSToDID(&jwks, host, realm)
 	if err != nil {
 		s.Logger.Warn("Transformation failed", zap.Error(err))
 		s.BaseServer.respondWithError(w, http.StatusNotFound, err.Error())

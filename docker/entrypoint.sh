@@ -8,7 +8,7 @@ STORE_PASS="${STORE_PASS:-changeit}"
 
 cd /cert
 
-if [[ -z "${KEYSTORE_PATH:-}" ]] && [[ -z "${CERT_URL:-}" ]]; then
+if [[ -z "${KEYSTORE_PATH:-}" ]] && [[ -z "${CERT_URL:-}" ]] && [[ -z "${KEYCLOAK_HOST:-}" ]]; then
   case "$KEY_TYPE_TO_GENERATE" in
     EC)
       case "$KEY_TYPE" in

@@ -129,3 +129,36 @@ Usage of ./did-helper:
   -server
     	Run a server with /did.json and /.well-known/tls.crt endpoints. (env RUN_SERVER)
 ```
+
+## Keycloak Integration
+
+The helper supports reading key material directly from a [Keycloak](https://www.keycloak.org/) instance. When configured with `-didType=keycloak`, the server exposes DID documents based on Keycloak realms using the following URL pattern:
+
+```
+/{realm}/did.json
+```
+
+Where `{realm}` is the **base64-encoded** name of the Keycloak realm. The helper will decode it, fetch the JWKS from the corresponding Keycloak realm and build the DID document accordingly.
+
+### Configuration
+
+| Parameter | Env Var | Description |
+|-----------|---------|-------------|
+| `-didType=keycloak` | `DID_TYPE=keycloak` | Enables Keycloak mode |
+| `-keycloakHost` | `KEYCLOAK_HOST` | Base URL of the Keycloak instance (e.g., `https://keycloak.example.com`) |
+
+### Example
+
+```shell
+./did-helper -didType=keycloak -keycloakHost=https://keycloak.example.com -server
+```
+
+Once running, the DID document for a realm `my-realm` would be available at:
+
+```shell
+# Encode the realm id in base64
+REALM_B64=$(echo -n "my-realm" | base64)
+
+# Request the DID document
+curl http://localhost:8080/${REALM_B64}/did.json
+```
