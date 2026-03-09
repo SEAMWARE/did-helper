@@ -35,6 +35,7 @@ type Config struct {
 	ServerPort          int          `flag:"port" default:"8080" usage:"Server port. Default 8080."`
 	Certificates        Certificates `flag:""`
 	KeycloakHost        string       `flag:"keycloakHost" usage:"URL of the Keycloak instance used to construct the OIDC discovery and JWKS endpoints for the realms"`
+	KeycloakRealm       string       `flag:"keycloakRealm" usage:"Fixed Keycloak realm. When set with didType=keycloak, serves a fixed DID document for this realm at the path derived from hostUrl."`
 	IgnoreTlsValidation bool         `flag:"ignoreTlsValidation" default:"false" usage:"Disable TLS validation. Do not use it in production"`
 }
 

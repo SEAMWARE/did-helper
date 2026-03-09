@@ -42,6 +42,8 @@ type BaseServer struct {
 type KeycloakServer struct {
 	BaseServer
 	KeycloakHost        string
+	Realm               string // fixed realm; empty means dynamic (read from path)
+	DID                 string // pre-computed DID ID for fixed realm mode
 	Transformer         *DIDTransformer
 	IgnoreTlsValidation bool
 }
@@ -55,22 +57,23 @@ type ErrorResponse struct {
 	Message string `json:"message"`
 }
 
+func buildDidPath(basepath, filename string) string {
+	basepath = strings.TrimSuffix(basepath, "/")
+	if basepath == "" {
+		return "/.well-known/" + filename
+	}
+	return basepath + "/" + filename
+}
+
 func NewDidServer(didJSON string, tlsCRT string, port int, basepath string, didFilename string) *DidServer {
 	logger, err := zap.NewProduction()
 	if err != nil {
 		log.Fatalf("Failed to initialize Zap logger: %v", err)
 	}
-	basepath = strings.TrimSuffix(basepath, "/")
 	mux := http.NewServeMux()
 
-	var didPath string
-	var certPath = basepath + "/.well-known/tls.crt"
-	// Ensure basepath has no trailing slash
-	if basepath == "" {
-		didPath = "/.well-known/" + didFilename
-	} else {
-		didPath = basepath + "/" + didFilename
-	}
+	didPath := buildDidPath(basepath, didFilename)
+	certPath := strings.TrimSuffix(basepath, "/") + "/.well-known/tls.crt"
 
 	s := &DidServer{
 		DidJSONContent: didJSON,
@@ -93,8 +96,10 @@ func NewDidServer(didJSON string, tlsCRT string, port int, basepath string, didF
 	return s
 }
 
-func NewKeycloakServer(keycloakHost string, port int, ignoreTlsValidation bool) *KeycloakServer {
-
+// NewKeycloakServer creates a Keycloak-backed DID server.
+// Dynamic mode (realm == ""): registers /{realm}/did.json; realm and DID are derived from each request.
+// Fixed mode (realm != ""): registers a static path from basepath and uses the pre-computed didID.
+func NewKeycloakServer(keycloakHost string, port int, ignoreTlsValidation bool, realm, didID, basepath string) *KeycloakServer {
 	logger, err := zap.NewProduction()
 	if err != nil {
 		log.Fatalf("Failed to initialize Zap logger: %v", err)
@@ -105,6 +110,8 @@ func NewKeycloakServer(keycloakHost string, port int, ignoreTlsValidation bool) 
 	mux := http.NewServeMux()
 	s := &KeycloakServer{
 		KeycloakHost:        keycloakHost,
+		Realm:               realm,
+		DID:                 didID,
 		Transformer:         NewDIDTransformer(),
 		IgnoreTlsValidation: ignoreTlsValidation,
 		BaseServer: BaseServer{
@@ -118,7 +125,17 @@ func NewKeycloakServer(keycloakHost string, port int, ignoreTlsValidation bool) 
 		},
 	}
 
-	mux.HandleFunc("/{realm}/did.json", s.handlerRealm)
+	if realm == "" {
+		mux.HandleFunc("/{realm}/did.json", s.handlerRealm)
+	} else {
+		didPath := buildDidPath(basepath, "did.json")
+		logger.Info("Keycloak fixed realm server initialized",
+			zap.String("realm", realm),
+			zap.String("didPath", didPath),
+			zap.String("did", didID),
+		)
+		mux.HandleFunc(didPath, s.handlerRealm)
+	}
 	return s
 }
 
@@ -153,23 +170,36 @@ func (s *DidServer) handleTlsCRT(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *KeycloakServer) handlerRealm(w http.ResponseWriter, r *http.Request) {
+	var realm, didID string
 
-	realmBase64 := r.PathValue("realm")
-	if realmBase64 == "" {
-		s.Logger.Warn("Request received without realm")
-		http.Error(w, "Missing realm", http.StatusBadRequest)
-		return
+	if s.Realm != "" {
+		// Fixed mode: use pre-configured realm and DID.
+		realm = s.Realm
+		didID = s.DID
+	} else {
+		// Dynamic mode: realm is base64-encoded in the path.
+		realmBase64 := r.PathValue("realm")
+		if realmBase64 == "" {
+			s.Logger.Warn("Request received without realm")
+			http.Error(w, "Missing realm", http.StatusBadRequest)
+			return
+		}
+		realmBytes, err := base64.StdEncoding.DecodeString(realmBase64)
+		if err != nil {
+			s.Logger.Warn("Error decoding realm")
+			http.Error(w, "Realm is not a valid realm", http.StatusBadRequest)
+			return
+		}
+		realm = string(realmBytes)
+		host, _, err := net.SplitHostPort(r.Host)
+		if err != nil {
+			host = r.Host
+		}
+		didID = fmt.Sprintf("did:web:%s:%s", host, realm)
 	}
-	realmBytes, err := base64.StdEncoding.DecodeString(realmBase64)
-	if err != nil {
-		s.Logger.Warn("Error decoding realm")
-		http.Error(w, "Realm is not a valid realm", http.StatusBadRequest)
-		return
-	}
-	realm := string(realmBytes)
+
 	keycloakURL := fmt.Sprintf("%s/realms/%s/protocol/openid-connect/certs", s.KeycloakHost, realm)
 	tr := &http.Transport{
-		// Configuración de TLS para ignorar la verificación
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: s.IgnoreTlsValidation},
 	}
 	client := http.Client{
@@ -197,11 +227,7 @@ func (s *KeycloakServer) handlerRealm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	host, _, err := net.SplitHostPort(r.Host)
-	if err != nil {
-		host = r.Host
-	}
-	didDoc, err := s.Transformer.TransformJWKSToDID(&jwks, host, realm)
+	didDoc, err := s.Transformer.TransformJWKSToDIDByID(&jwks, didID)
 	if err != nil {
 		s.Logger.Warn("Transformation failed", zap.Error(err))
 		s.BaseServer.respondWithError(w, http.StatusNotFound, err.Error())

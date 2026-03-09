@@ -11,10 +11,13 @@ func NewDIDTransformer() *DIDTransformer {
 }
 
 func (t *DIDTransformer) TransformJWKSToDID(jwks *JWKS, host string, realm string) (map[string]any, error) {
+	didID := fmt.Sprintf("did:web:%s:%s", host, realm)
+	return t.TransformJWKSToDIDByID(jwks, didID)
+}
+
+func (t *DIDTransformer) TransformJWKSToDIDByID(jwks *JWKS, didID string) (map[string]any, error) {
 	var verificationMethods []map[string]any
 	var keyIDs []string
-
-	didID := fmt.Sprintf("did:web:%s:%s", host, realm)
 
 	for _, key := range jwks.Keys {
 		if key.Use == "sig" {

@@ -18,6 +18,15 @@ func init() {
 	zap.ReplaceGlobals(zap.Must(zap.NewDevelopment()))
 }
 
+func getHostPath(hostUrl string) string {
+	webUrl, err := url.Parse(hostUrl)
+	if err != nil {
+		zap.L().Sugar().Errorf("'%s' is not a valid url", hostUrl)
+		os.Exit(7)
+	}
+	return webUrl.Path
+}
+
 func main() {
 	var cfg did.Config
 	var fileContent []byte
@@ -46,7 +55,9 @@ func main() {
 	case "web":
 		resultingDid, err = did.GetDIDWeb(cfg.HostUrl)
 	case "keycloak":
-		resultingDid = ""
+		if cfg.KeycloakRealm != "" {
+			resultingDid, err = did.GetDIDWeb(cfg.HostUrl)
+		}
 	default:
 		zap.L().Sugar().Warnf("Did type %s is not supported.", cfg.DidType)
 		os.Exit(2)
@@ -95,23 +106,20 @@ func main() {
 		}
 	} else if cfg.RunServer {
 		if cfg.DidType == "keycloak" {
-			server := did.NewKeycloakServer(cfg.KeycloakHost, cfg.ServerPort, cfg.IgnoreTlsValidation)
+			var basepath string
+			if cfg.KeycloakRealm != "" {
+				basepath = getHostPath(cfg.HostUrl)
+			}
+			server := did.NewKeycloakServer(cfg.KeycloakHost, cfg.ServerPort, cfg.IgnoreTlsValidation, cfg.KeycloakRealm, resultingDid, basepath)
 			server.BaseServer.Start()
 		} else {
 			cert, _ := did.GetCert(cfg)
-			webUrl, err := url.Parse(cfg.HostUrl)
-			if err != nil {
-				zap.L().Sugar().Errorf("'%s' is not a valid url")
-				os.Exit(7)
-			}
 			didFilename := "did.json"
 			if cfg.OutputFormat == "env" {
 				didFilename = "did.env"
 			}
-
-			server := did.NewDidServer(string(fileContent), string(cert), cfg.ServerPort, webUrl.Path, didFilename)
+			server := did.NewDidServer(string(fileContent), string(cert), cfg.ServerPort, getHostPath(cfg.HostUrl), didFilename)
 			server.Start()
-
 		}
 	} else {
 		fmt.Println("Output: ", string(fileContent))
