@@ -15,6 +15,7 @@ import (
 
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 
 	"go.uber.org/zap"
 )
@@ -127,14 +128,18 @@ func NewKeycloakServer(keycloakHost string, port int, ignoreTlsValidation bool, 
 
 	if realm == "" {
 		mux.HandleFunc("/{realm}/did.json", s.handlerRealm)
+		mux.HandleFunc("/{realm}/.well-known/tls.crt", s.handlerCert)
 	} else {
 		didPath := buildDidPath(basepath, "did.json")
+		certPath := strings.TrimSuffix(basepath, "/") + "/.well-known/tls.crt"
 		logger.Info("Keycloak fixed realm server initialized",
 			zap.String("realm", realm),
 			zap.String("didPath", didPath),
+			zap.String("certPath", certPath),
 			zap.String("did", didID),
 		)
 		mux.HandleFunc(didPath, s.handlerRealm)
+		mux.HandleFunc(certPath, s.handlerCert)
 	}
 	return s
 }
@@ -169,28 +174,57 @@ func (s *DidServer) handleTlsCRT(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *KeycloakServer) handlerRealm(w http.ResponseWriter, r *http.Request) {
-	var realm, didID string
-
+// resolveRealm returns the realm name: from the fixed config (fixed mode) or decoded from the path (dynamic mode).
+func (s *KeycloakServer) resolveRealm(r *http.Request) (string, error) {
 	if s.Realm != "" {
-		// Fixed mode: use pre-configured realm and DID.
-		realm = s.Realm
+		return s.Realm, nil
+	}
+	realmBase64 := r.PathValue("realm")
+	if realmBase64 == "" {
+		return "", fmt.Errorf("missing realm")
+	}
+	realmBytes, err := base64.StdEncoding.DecodeString(realmBase64)
+	if err != nil {
+		return "", fmt.Errorf("realm is not a valid base64 value")
+	}
+	return string(realmBytes), nil
+}
+
+// fetchJWKS fetches and decodes the JWKS from Keycloak for the given realm.
+// Returns the JWKS, an HTTP status code for error responses, and any error.
+func (s *KeycloakServer) fetchJWKS(realm string) (*JWKS, int, error) {
+	keycloakURL := fmt.Sprintf("%s/realms/%s/protocol/openid-connect/certs", s.KeycloakHost, realm)
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: s.IgnoreTlsValidation},
+	}
+	client := http.Client{Timeout: 5 * time.Second, Transport: tr}
+	resp, err := client.Get(keycloakURL)
+	if err != nil {
+		return nil, http.StatusBadGateway, fmt.Errorf("identity provider unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, resp.StatusCode, fmt.Errorf("realm not found or Keycloak error")
+	}
+	var jwks JWKS
+	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
+		return nil, http.StatusInternalServerError, fmt.Errorf("invalid response from identity provider")
+	}
+	return &jwks, http.StatusOK, nil
+}
+
+func (s *KeycloakServer) handlerRealm(w http.ResponseWriter, r *http.Request) {
+	realm, err := s.resolveRealm(r)
+	if err != nil {
+		s.Logger.Warn("Could not resolve realm", zap.Error(err))
+		s.BaseServer.respondWithError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	var didID string
+	if s.Realm != "" {
 		didID = s.DID
 	} else {
-		// Dynamic mode: realm is base64-encoded in the path.
-		realmBase64 := r.PathValue("realm")
-		if realmBase64 == "" {
-			s.Logger.Warn("Request received without realm")
-			http.Error(w, "Missing realm", http.StatusBadRequest)
-			return
-		}
-		realmBytes, err := base64.StdEncoding.DecodeString(realmBase64)
-		if err != nil {
-			s.Logger.Warn("Error decoding realm")
-			http.Error(w, "Realm is not a valid realm", http.StatusBadRequest)
-			return
-		}
-		realm = string(realmBytes)
 		host, _, err := net.SplitHostPort(r.Host)
 		if err != nil {
 			host = r.Host
@@ -198,36 +232,14 @@ func (s *KeycloakServer) handlerRealm(w http.ResponseWriter, r *http.Request) {
 		didID = fmt.Sprintf("did:web:%s:%s", host, realm)
 	}
 
-	keycloakURL := fmt.Sprintf("%s/realms/%s/protocol/openid-connect/certs", s.KeycloakHost, realm)
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: s.IgnoreTlsValidation},
-	}
-	client := http.Client{
-		Timeout:   5 * time.Second,
-		Transport: tr,
-	}
-	resp, err := client.Get(keycloakURL)
+	jwks, statusCode, err := s.fetchJWKS(realm)
 	if err != nil {
-		s.Logger.Error("Failed to connect to Keycloak", zap.Error(err), zap.String("url", keycloakURL))
-		s.BaseServer.respondWithError(w, http.StatusBadGateway, "Indentity provider unreachable")
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		s.Logger.Warn("Keycloak returned non-OK status", zap.Int("status", resp.StatusCode), zap.String("realm", realm))
-		s.BaseServer.respondWithError(w, resp.StatusCode, "Realm not found or Keycloak error")
+		s.Logger.Error("Failed to fetch JWKS", zap.Error(err), zap.String("realm", realm))
+		s.BaseServer.respondWithError(w, statusCode, err.Error())
 		return
 	}
 
-	var jwks JWKS
-	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
-		s.Logger.Error("Failed to decode JWKS body", zap.Error(err))
-		s.BaseServer.respondWithError(w, http.StatusInternalServerError, "Invalid response from identity provider")
-		return
-	}
-
-	didDoc, err := s.Transformer.TransformJWKSToDIDByID(&jwks, didID)
+	didDoc, err := s.Transformer.TransformJWKSToDIDByID(jwks, didID)
 	if err != nil {
 		s.Logger.Warn("Transformation failed", zap.Error(err))
 		s.BaseServer.respondWithError(w, http.StatusNotFound, err.Error())
@@ -238,6 +250,37 @@ func (s *KeycloakServer) handlerRealm(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(didDoc); err != nil {
 		s.Logger.Error("Failed to encode JSON response", zap.Error(err))
 	}
+}
+
+func (s *KeycloakServer) handlerCert(w http.ResponseWriter, r *http.Request) {
+	realm, err := s.resolveRealm(r)
+	if err != nil {
+		s.Logger.Warn("Could not resolve realm", zap.Error(err))
+		s.BaseServer.respondWithError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	jwks, statusCode, err := s.fetchJWKS(realm)
+	if err != nil {
+		s.Logger.Error("Failed to fetch JWKS", zap.Error(err), zap.String("realm", realm))
+		s.BaseServer.respondWithError(w, statusCode, err.Error())
+		return
+	}
+
+	for _, key := range jwks.Keys {
+		if key.Use == "sig" && len(key.X5c) > 0 {
+			certDER, err := base64.StdEncoding.DecodeString(key.X5c[0])
+			if err != nil {
+				s.Logger.Error("Failed to decode x5c certificate", zap.Error(err))
+				s.BaseServer.respondWithError(w, http.StatusInternalServerError, "Invalid certificate in JWKS")
+				return
+			}
+			w.Header().Set("Content-Type", "application/x-x509-ca-cert")
+			w.Write(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER}))
+			return
+		}
+	}
+	s.BaseServer.respondWithError(w, http.StatusNotFound, "No signing certificate found in JWKS")
 }
 
 func (s *BaseServer) Start() error {
