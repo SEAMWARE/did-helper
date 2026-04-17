@@ -179,15 +179,11 @@ func (s *KeycloakServer) resolveRealm(r *http.Request) (string, error) {
 	if s.Realm != "" {
 		return s.Realm, nil
 	}
-	realmBase64 := r.PathValue("realm")
-	if realmBase64 == "" {
+	realm := r.PathValue("realm")
+	if realm == "" {
 		return "", fmt.Errorf("missing realm")
 	}
-	realmBytes, err := base64.StdEncoding.DecodeString(realmBase64)
-	if err != nil {
-		return "", fmt.Errorf("realm is not a valid base64 value")
-	}
-	return string(realmBytes), nil
+	return realm, nil
 }
 
 // fetchJWKS fetches and decodes the JWKS from Keycloak for the given realm.
