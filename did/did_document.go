@@ -1,13 +1,21 @@
 package did
 
 import (
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/binary"
 	"fmt"
+
+	"go.uber.org/zap"
 )
 
-type DIDTransformer struct{}
+type DIDTransformer struct {
+	Logger *zap.Logger
+}
 
-func NewDIDTransformer() *DIDTransformer {
-	return &DIDTransformer{}
+func NewDIDTransformer(logger *zap.Logger) *DIDTransformer {
+	return &DIDTransformer{Logger: logger}
 }
 
 func (t *DIDTransformer) TransformJWKSToDID(jwks *JWKS, host string, realm string) (map[string]any, error) {
@@ -23,20 +31,31 @@ func (t *DIDTransformer) TransformJWKSToDIDByID(jwks *JWKS, didID string) (map[s
 		if key.Use == "sig" {
 			currentKeyID := fmt.Sprintf("%s#%s", didID, key.Kid)
 
+			if key.Kty == "RSA" && (key.N == "" || key.E == "") && len(key.X5c) > 0 {
+				derBytes, err := base64.StdEncoding.DecodeString(key.X5c[0])
+				if err != nil {
+					t.Logger.Warn("Failed to decode x5c for RSA key", zap.String("kid", key.Kid), zap.Error(err))
+				} else if cert, err := x509.ParseCertificate(derBytes); err != nil {
+					t.Logger.Warn("Failed to parse x5c certificate for RSA key", zap.String("kid", key.Kid), zap.Error(err))
+				} else if rsaPub, ok := cert.PublicKey.(*rsa.PublicKey); !ok {
+					t.Logger.Warn("x5c does not contain RSA public key", zap.String("kid", key.Kid))
+				} else {
+					key.N = base64.RawURLEncoding.EncodeToString(rsaPub.N.Bytes())
+					eBytes := make([]byte, 4)
+					binary.BigEndian.PutUint32(eBytes, uint32(rsaPub.E))
+					for len(eBytes) > 1 && eBytes[0] == 0 {
+						eBytes = eBytes[1:]
+					}
+					key.E = base64.RawURLEncoding.EncodeToString(eBytes)
+					t.Logger.Info("Recovered n/e from x5c", zap.String("kid", key.Kid))
+				}
+			}
+
 			vm := map[string]any{
-				"id":         currentKeyID,
-				"type":       "JsonWebKey2020",
-				"controller": didID,
-				"publicKeyJwk": map[string]interface{}{
-					"kty":      key.Kty,
-					"crv":      key.Crv,
-					"x":        key.X,
-					"y":        key.Y,
-					"alg":      key.Alg,
-					"kid":      key.Kid,
-					"x5c":      key.X5c,
-					"x5t#S256": key.X5tS256,
-				},
+				"id":           currentKeyID,
+				"type":         "JsonWebKey2020",
+				"controller":   didID,
+				"publicKeyJwk": key,
 			}
 
 			verificationMethods = append(verificationMethods, vm)

@@ -28,12 +28,14 @@ type JWK struct {
 	Kty     string   `json:"kty"`
 	Alg     string   `json:"alg"`
 	Use     string   `json:"use"`
+	N       string   `json:"n,omitempty"`
+	E       string   `json:"e,omitempty"`
 	X5c     []string `json:"x5c"`
 	X5t     string   `json:"x5t"`
 	X5tS256 string   `json:"x5t#S256"`
-	Crv     string   `json:"crv"`
-	X       string   `json:"x"`
-	Y       string   `json:"y"`
+	Crv     string   `json:"crv,omitempty"`
+	X       string   `json:"x,omitempty"`
+	Y       string   `json:"y,omitempty"`
 }
 
 type BaseServer struct {
@@ -113,7 +115,7 @@ func NewKeycloakServer(keycloakHost string, port int, ignoreTlsValidation bool, 
 		KeycloakHost:        keycloakHost,
 		Realm:               realm,
 		DID:                 didID,
-		Transformer:         NewDIDTransformer(),
+		Transformer:         NewDIDTransformer(logger),
 		IgnoreTlsValidation: ignoreTlsValidation,
 		BaseServer: BaseServer{
 			Logger: logger,
