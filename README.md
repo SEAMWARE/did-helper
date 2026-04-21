@@ -28,12 +28,15 @@ The container can be configured, using the following environment-variables:
 | KEY_PATH | Path to the key PEM certificate | string |
 | OUTPUT_FORMAT | Output format for the did result file. | "json", "env", "json_jwk" | "json" |
 | OUTPUT_FILE | File to write the did, format depends on the requested format. Will not write the file if empty. | string | "/cert/did.json" |
-| DID_TYPE | Type of the did to generate. | "key", "jwk" or "web" | "key" |
+| DID_TYPE | Type of the did to generate. | "key", "jwk", "web" or "keycloak" | "key" |
 | KEY_TYPE | Type of the key provided. | "P-256", "P-384" or "ED-25519" | "P-256" |
 | HOST_URL | Base URL where the DID document will be located, excluding 'did.json'. (e.g., https://example.com/alice for https://example.com/alice/did.json). Required for did:web | |
 | CERT_URL | URL to retrieve the public certificate | string | `HOST_URL` + `/.well-known/tls.crt`
 | RUN_SERVER | Run a server with /did.json and /.well-known/tls.crt endpoints | false
 | SERVER_PORT | Server port | 8080 |
+| KEYCLOAK_HOST | Base URL of the Keycloak instance used to fetch JWKS for realm-based DID documents (e.g., `https://keycloak.example.com`). Required when `DID_TYPE=keycloak`. | string | |
+| KEYCLOAK_REALM | Fixed Keycloak realm. When set with `DID_TYPE=keycloak`, serves a static DID document for this realm at the path derived from `HOST_URL`, instead of the dynamic `/{realm}/did.json` pattern. | string | |
+| IGNORE_TLS_VALIDATION | Disable TLS certificate validation when connecting to Keycloak. Do not use in production. | "true", "false" | "false" |
 | KEY_TYPE_TO_GENERATE | Type of the key to be generated. RSA is only supported for did:jwk | "EC", "ED-25519" or "RSA" | "EC" |
 | KEY_ALIAS | Alias for the key inside the keystore | string | "myAlias" |
 | COUNTRY | Country to be set for the created certificate. | string | "DE" |
@@ -128,4 +131,45 @@ Usage of ./did-helper:
     	Server port. Default 8080. (env SERVER_PORT) (default 8080)
   -server
     	Run a server with /did.json and /.well-known/tls.crt endpoints. (env RUN_SERVER)
+  -keycloakHost string
+    	URL of the Keycloak instance used to construct the OIDC discovery and JWKS endpoints for the realms. (env KEYCLOAK_HOST)
+  -keycloakRealm string
+    	Fixed Keycloak realm. When set with didType=keycloak, serves a fixed DID document for this realm at the path derived from hostUrl. (env KEYCLOAK_REALM)
+  -ignoreTlsValidation
+    	Disable TLS validation when connecting to Keycloak. Do not use it in production. (env IGNORE_TLS_VALIDATION) (default false)
+```
+
+## Keycloak Integration
+
+The helper supports reading key material directly from a [Keycloak](https://www.keycloak.org/) instance. When configured with `-didType=keycloak`, the server exposes DID documents based on Keycloak realms using the following URL pattern:
+
+```
+/{realm}/did.json
+```
+
+Where `{realm}` is the **base64-encoded** name of the Keycloak realm. The helper will decode it, fetch the JWKS from the corresponding Keycloak realm and build the DID document accordingly.
+
+### Configuration
+
+| Parameter | Env Var | Description |
+|-----------|---------|-------------|
+| `-didType=keycloak` | `DID_TYPE=keycloak` | Enables Keycloak mode |
+| `-keycloakHost` | `KEYCLOAK_HOST` | Base URL of the Keycloak instance (e.g., `https://keycloak.example.com`) |
+| `-keycloakRealm` | `KEYCLOAK_REALM` | Fixed realm name. When set, the server exposes a single static DID document at the path derived from `-hostUrl` (e.g., `/my/path/did.json`) instead of the dynamic `/{realm}/did.json` pattern. The certificate is available at `/.well-known/tls.crt` under the same base path. |
+| `-ignoreTlsValidation` | `IGNORE_TLS_VALIDATION` | Disable TLS certificate validation when connecting to Keycloak. Do not use in production. |
+
+### Example
+
+```shell
+./did-helper -didType=keycloak -keycloakHost=https://keycloak.example.com -server
+```
+
+Once running, the DID document for a realm `my-realm` would be available at:
+
+```shell
+# Encode the realm id in base64
+REALM_B64=$(echo -n "my-realm" | base64)
+
+# Request the DID document
+curl http://localhost:8080/${REALM_B64}/did.json
 ```

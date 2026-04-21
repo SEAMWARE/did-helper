@@ -8,7 +8,6 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"net/url"
 	"strings"
@@ -17,22 +16,6 @@ import (
 	"github.com/trustbloc/kms-go/doc/util/fingerprint"
 	"go.uber.org/zap"
 )
-
-func LoadCertificates(config *Config) (err error) {
-
-	var source string
-	if config.KeyPath != "" || config.CertPath != "" {
-		err = LoadCertsConfigFromPem(config)
-	} else {
-		config.Certificates.PrivateKey, config.Certificates.PublicKey, err = GetCertFromKeyStore(config.KeystorePath, config.KeystorePassword)
-	}
-
-	if err != nil {
-		zap.L().Sugar().Warnf("Was not able to load certs from %s %s", source, config.KeystorePath, "error", err)
-		return err
-	}
-	return nil
-}
 
 func GetDIDKey(config Config) (did string, err error) {
 
@@ -136,16 +119,6 @@ func GenerateJWK(config Config) (jwkKey jwk.Key, err error) {
 	}
 
 	return
-}
-
-func GetCert(config Config) (certRaw []byte, err error) {
-
-	pemBlock := &pem.Block{
-		Type:  "CERTIFICATE",
-		Bytes: config.Certificates.PublicKey.Raw,
-	}
-
-	return pem.EncodeToMemory(pemBlock), nil
 }
 
 func generateJwk(cert *x509.Certificate) (jwkKey jwk.Key, err error) {

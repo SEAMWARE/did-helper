@@ -1,6 +1,7 @@
-FROM --platform=${BUILDPLATFORM} golang:1.25-alpine AS build
+FROM --platform=${BUILDPLATFORM} golang:1.26-alpine AS build
 
 ARG BUILDPLATFORM
+ARG TARGETPLATFORM
 ARG TARGETOS
 ARG TARGETARCH
 
@@ -14,7 +15,7 @@ COPY . .
 
 RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build  -ldflags="-w -s" -o did-helper .
 
-FROM --platform=${BUILDPLATFORM} alpine:3.21
+FROM alpine:3.23
 
 ENV KEY_TYPE_TO_GENERATE="EC"
 
