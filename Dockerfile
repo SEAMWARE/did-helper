@@ -15,7 +15,7 @@ COPY . .
 
 RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build  -ldflags="-w -s" -o did-helper .
 
-FROM alpine:3.21
+FROM alpine:3.23
 
 ENV KEY_TYPE_TO_GENERATE="EC"
 
