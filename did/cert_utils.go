@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"go.uber.org/zap"
 	"software.sslmate.com/src/go-pkcs12"
 )
 
@@ -91,4 +92,26 @@ func LoadCertsConfigFromPem(config *Config) (err error) {
 		}
 	}
 	return
+}
+
+func LoadCertificates(config *Config) (err error) {
+	var source string
+	if config.KeyPath != "" || config.CertPath != "" {
+		err = LoadCertsConfigFromPem(config)
+	} else {
+		config.Certificates.PrivateKey, config.Certificates.PublicKey, err = GetCertFromKeyStore(config.KeystorePath, config.KeystorePassword)
+	}
+	if err != nil {
+		zap.L().Sugar().Warnf("Was not able to load certs from %s %s", source, config.KeystorePath, "error", err)
+		return err
+	}
+	return nil
+}
+
+func GetCert(config Config) (certRaw []byte, err error) {
+	pemBlock := &pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: config.Certificates.PublicKey.Raw,
+	}
+	return pem.EncodeToMemory(pemBlock), nil
 }
