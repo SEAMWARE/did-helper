@@ -44,11 +44,15 @@ jobs:
         run: |
           go build .
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Build Image
         id: build-image
         uses: redhat-actions/buildah-build@v2
         with:
           image: did-helper
+          platforms: linux/amd64,linux/arm64
           tags: latest ${{ github.sha }} ${{ steps.out.outputs.version }}
           dockerfiles: |
             ./Dockerfile
