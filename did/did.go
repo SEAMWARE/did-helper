@@ -83,6 +83,7 @@ func BuildOutput(cfg *Config, resultingDid string) ([]byte, error) {
 		verificationMethod := VerificationMethod{Id: resultingDid, Type: "JsonWebKey2020", Controller: resultingDid, PublicKeyJwk: keySet}
 		didJson := Did{Context: []string{"https://www.w3.org/ns/did/v1"}, Id: resultingDid, VerificationMethod: []VerificationMethod{verificationMethod}}
 		return json.MarshalIndent(didJson, "", "  ")
+	default:
+		return nil, fmt.Errorf("output format %s is not supported", cfg.OutputFormat)
 	}
-	return nil, nil
 }

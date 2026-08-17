@@ -48,7 +48,7 @@ func startServer(cfg did.Config, fileContent []byte, resultingDid string) error 
 		return err
 	}
 	snapshot := did.DidSnapshot{DidJSON: fileContent, TlsCRT: cert}
-	server := did.NewDidServer(snapshot, cfg, cfg.ServerPort, hostPath, didFilename)
+	server := did.NewDidServer(snapshot, cfg, resultingDid, cfg.ServerPort, hostPath, didFilename)
 	return server.Start()
 }
 

@@ -67,18 +67,15 @@ func GetDIDJWKFromKey(config Config) (did string, err error) {
 
 	jwkKey, err := generateJwk(config.Certificates.PublicKey)
 	if err != nil {
-		zap.L().Sugar().Fatalf("failed to create JWK: %v", err)
 		return did, err
 	}
 
 	publicKey, err := jwkKey.PublicKey()
 	if err != nil {
-		zap.L().Sugar().Fatalf("failed to get the public key: %v", err)
 		return did, err
 	}
 	jsonKey, err := json.Marshal(publicKey)
 	if err != nil {
-		zap.L().Sugar().Fatalf("failed to marshal the public key: %v", err)
 		return did, err
 	}
 
@@ -110,7 +107,6 @@ func GenerateJWK(config Config) (jwkKey jwk.Key, err error) {
 
 	jwkKey, err = generateJwk(config.Certificates.PublicKey)
 	if err != nil {
-		zap.L().Sugar().Fatalf("failed to create JWK: %v", err)
 		return jwkKey, err
 	}
 	jwk.AssignKeyID(jwkKey, jwk.WithThumbprintHash(crypto.SHA256))
@@ -124,7 +120,6 @@ func GenerateJWK(config Config) (jwkKey jwk.Key, err error) {
 func generateJwk(cert *x509.Certificate) (jwkKey jwk.Key, err error) {
 	jwkPrivkey, err := jwk.PublicKeyOf(cert.PublicKey)
 	if err != nil {
-		zap.L().Sugar().Fatalf("Unable to generate jwk")
 		return jwkKey, err
 	}
 	jwkKey, err = jwkPrivkey.PublicKey()

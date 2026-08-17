@@ -3,6 +3,7 @@ package did
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync/atomic"
 	"time"
@@ -27,11 +28,12 @@ type CertWatcher struct {
 	target   *atomic.Pointer[DidSnapshot]
 	logger   *zap.Logger
 	relevant map[string]struct{}
+	lastDid  string
 	cancel   context.CancelFunc
 	done     chan struct{}
 }
 
-func NewCertWatcher(cfg Config, target *atomic.Pointer[DidSnapshot], logger *zap.Logger) (*CertWatcher, error) {
+func NewCertWatcher(cfg Config, initialDid string, target *atomic.Pointer[DidSnapshot], logger *zap.Logger) (*CertWatcher, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
@@ -54,6 +56,14 @@ func NewCertWatcher(cfg Config, target *atomic.Pointer[DidSnapshot], logger *zap
 			watcher.Close()
 			return nil, err
 		}
+		if _, err := os.Lstat(filepath.Join(dir, dataSymlinkName)); err != nil {
+			logger.Warn(
+				"Watched directory has no '..data' atomic-writer entry; if it is mounted via subPath, "+
+					"Kubernetes will never propagate Secret/ConfigMap rotations here and this watcher will not see updates. "+
+					"Mount the whole volume (no subPath) for live certificate reload to work.",
+				zap.String("dir", dir),
+			)
+		}
 	}
 
 	return &CertWatcher{
@@ -62,6 +72,7 @@ func NewCertWatcher(cfg Config, target *atomic.Pointer[DidSnapshot], logger *zap
 		target:   target,
 		logger:   logger,
 		relevant: relevant,
+		lastDid:  initialDid,
 	}, nil
 }
 
@@ -144,6 +155,15 @@ func (w *CertWatcher) reload() (err error) {
 	resultingDid, err := ResolveDID(cfgCopy)
 	if err != nil {
 		return err
+	}
+
+	if resultingDid != w.lastDid {
+		w.logger.Warn(
+			"Certificate rotation changed the resulting DID; anything that pinned the previous DID (trusted issuer lists, counterparties) will break",
+			zap.String("previousDid", w.lastDid),
+			zap.String("newDid", resultingDid),
+		)
+		w.lastDid = resultingDid
 	}
 
 	didJSON, err := BuildOutput(&cfgCopy, resultingDid)

@@ -24,7 +24,7 @@ type DidServer struct {
 	content atomic.Pointer[DidSnapshot]
 }
 
-func NewDidServer(initial DidSnapshot, cfg Config, port int, basepath string, didFilename string) *DidServer {
+func NewDidServer(initial DidSnapshot, cfg Config, resultingDid string, port int, basepath string, didFilename string) *DidServer {
 	logger, err := zap.NewProduction()
 	if err != nil {
 		log.Fatalf("Failed to initialize Zap logger: %v", err)
@@ -47,8 +47,8 @@ func NewDidServer(initial DidSnapshot, cfg Config, port int, basepath string, di
 	}
 	s.content.Store(&initial)
 
-	if cfg.DidType != "keycloak" && (cfg.CertPath != "" || cfg.KeyPath != "" || cfg.KeystorePath != "") {
-		watcher, err := NewCertWatcher(cfg, &s.content, logger)
+	if cfg.CertPath != "" || cfg.KeyPath != "" || cfg.KeystorePath != "" {
+		watcher, err := NewCertWatcher(cfg, resultingDid, &s.content, logger)
 		if err != nil {
 			logger.Warn("Could not start certificate watcher; live cert rotation is disabled", zap.Error(err))
 		} else {
