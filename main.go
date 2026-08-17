@@ -1,12 +1,10 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"net/url"
 	"os"
-	"strings"
 
 	"github.com/itzg/go-flagsfiller"
 	"gitlab.seamware.com/seamware/did-helper/did"
@@ -24,46 +22,6 @@ func getHostPath(hostUrl string) (string, error) {
 		return "", fmt.Errorf("'%s' is not a valid url", hostUrl)
 	}
 	return webUrl.Path, nil
-}
-
-func resolveDID(cfg did.Config) (string, error) {
-	switch cfg.DidType {
-	case "key":
-		return did.GetDIDKey(cfg)
-	case "jwk":
-		return did.GetDIDJWKFromKey(cfg)
-	case "web":
-		return did.GetDIDWeb(cfg.HostUrl)
-	case "keycloak":
-		if cfg.KeycloakRealm != "" {
-			return did.GetDIDWeb(cfg.HostUrl)
-		}
-		return "", nil
-	default:
-		return "", fmt.Errorf("did type %s is not supported", cfg.DidType)
-	}
-}
-
-func buildOutput(cfg *did.Config, resultingDid string) ([]byte, error) {
-	switch cfg.OutputFormat {
-	case "json":
-		didJson := did.Did{IssuerDid: []string{"https://www.w3.org/ns/did/v1"}, Id: resultingDid}
-		return json.Marshal(didJson)
-	case "env":
-		return []byte("DID=" + resultingDid), nil
-	case "json_jwk":
-		if cfg.CertUrl == "" {
-			cfg.CertUrl = strings.TrimSuffix(cfg.HostUrl, "/") + "/.well-known/tls.crt"
-		}
-		keySet, err := did.GenerateJWK(*cfg)
-		if err != nil {
-			return nil, fmt.Errorf("error generating keyset: %w", err)
-		}
-		verificationMethod := did.VerificationMethod{Id: resultingDid, Type: "JsonWebKey2020", Controller: resultingDid, PublicKeyJwk: keySet}
-		didJson := did.Did{Context: []string{"https://www.w3.org/ns/did/v1"}, Id: resultingDid, VerificationMethod: []did.VerificationMethod{verificationMethod}}
-		return json.MarshalIndent(didJson, "", "  ")
-	}
-	return nil, nil
 }
 
 func startServer(cfg did.Config, fileContent []byte, resultingDid string) error {
@@ -89,7 +47,8 @@ func startServer(cfg did.Config, fileContent []byte, resultingDid string) error 
 	if err != nil {
 		return err
 	}
-	server := did.NewDidServer(string(fileContent), string(cert), cfg.ServerPort, hostPath, didFilename)
+	snapshot := did.DidSnapshot{DidJSON: fileContent, TlsCRT: cert}
+	server := did.NewDidServer(snapshot, cfg, cfg.ServerPort, hostPath, didFilename)
 	return server.Start()
 }
 
@@ -108,7 +67,7 @@ func main() {
 		}
 	}
 
-	resultingDid, err := resolveDID(cfg)
+	resultingDid, err := did.ResolveDID(cfg)
 	if err != nil {
 		zap.L().Sugar().Fatalf("was not able to resolve did: %s", err)
 	}
@@ -116,7 +75,7 @@ func main() {
 		fmt.Println("Did key is: ", resultingDid)
 	}
 
-	fileContent, err := buildOutput(&cfg, resultingDid)
+	fileContent, err := did.BuildOutput(&cfg, resultingDid)
 	if err != nil {
 		zap.L().Sugar().Fatalf("was not able to build output: %s", err)
 	}
