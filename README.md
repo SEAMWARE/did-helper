@@ -145,7 +145,7 @@ When `-server` is enabled with a file-based certificate (`-certPath`/`-keyPath` 
 
 This relies on filesystem events, so the mount must let the rotation actually reach the container:
 
-* **Do not use `subPath`** to mount the Secret/ConfigMap holding the certificate. Kubernetes does not propagate updates to `subPath` mounts, so the watcher will never observe a rotation performed that way. Mount the whole volume instead.
+* **Do not use `subPath`** to mount the Secret/ConfigMap holding the certificate. Kubernetes does not propagate updates to `subPath` mounts, so the watcher will never observe a rotation performed that way. Mount the whole volume instead. There is no reliable way for the watcher to detect this misconfiguration at runtime: a `subPath` mount is bind-mounted as a plain file, indistinguishable from a legitimately static local file (e.g. a `hostPath` mount or a self-generated key) — check your deployment's volume configuration directly rather than relying on a log message to catch it.
 * If a rotation legitimately changes the key material (not just the certificate metadata), the resulting DID for `did:key`/`did:jwk` changes too. This is logged explicitly as a warning with the previous and new DID, since anything that pinned the old DID (trusted issuer lists, counterparties) will need to be updated.
 
 ## Keycloak Integration
