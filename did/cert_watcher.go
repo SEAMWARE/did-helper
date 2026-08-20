@@ -14,6 +14,11 @@ import (
 
 const reloadDebounceWindow = 500 * time.Millisecond
 
+// maxReloadRetryBackoff caps how long we wait between retries of a failed reload when no
+// further fs event arrives to re-trigger one (e.g. a non-atomic writer left the cert
+// mid-write when the debounce fired).
+const maxReloadRetryBackoff = 30 * time.Second
+
 // dataSymlinkName is the atomic-writer symlink Kubernetes re-points on Secret/ConfigMap
 // volume rotation. The mounted file names themselves (e.g. tls.crt) are static symlinks
 // through this entry, so the real rotation event arrives on "..data", not on the file name.
@@ -101,6 +106,7 @@ func (w *CertWatcher) Start(ctx context.Context) {
 
 		var pending *time.Timer
 		var pendingC <-chan time.Time
+		backoff := reloadDebounceWindow
 
 		for {
 			select {
@@ -121,6 +127,7 @@ func (w *CertWatcher) Start(ctx context.Context) {
 					continue
 				}
 
+				backoff = reloadDebounceWindow
 				if pending == nil {
 					pending = time.NewTimer(reloadDebounceWindow)
 				} else {
@@ -144,8 +151,15 @@ func (w *CertWatcher) Start(ctx context.Context) {
 				pending = nil
 				pendingC = nil
 				if err := w.reload(); err != nil {
-					w.logger.Warn("Failed to reload certificate; keeping previous content", zap.Error(err))
+					w.logger.Warn("Failed to reload certificate; retrying", zap.Error(err), zap.Duration("retryIn", backoff))
+					pending = time.NewTimer(backoff)
+					pendingC = pending.C
+					backoff *= 2
+					if backoff > maxReloadRetryBackoff {
+						backoff = maxReloadRetryBackoff
+					}
 				} else {
+					backoff = reloadDebounceWindow
 					w.logger.Info("Certificate rotation detected, served content refreshed")
 				}
 			}
