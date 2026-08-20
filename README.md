@@ -139,6 +139,15 @@ Usage of ./did-helper:
     	Disable TLS validation when connecting to Keycloak. Do not use it in production. (env IGNORE_TLS_VALIDATION) (default false)
 ```
 
+## Certificate Rotation (server mode)
+
+When `-server` is enabled with a file-based certificate (`-certPath`/`-keyPath` or `-keystorePath`), the served `did.json` and `tls.crt` are refreshed automatically whenever the underlying file changes, without restarting the process.
+
+This relies on filesystem events, so the mount must let the rotation actually reach the container:
+
+* **Do not use `subPath`** to mount the Secret/ConfigMap holding the certificate. Kubernetes does not propagate updates to `subPath` mounts, so the watcher will never observe a rotation performed that way. Mount the whole volume instead. There is no reliable way for the watcher to detect this misconfiguration at runtime: a `subPath` mount is bind-mounted as a plain file, indistinguishable from a legitimately static local file (e.g. a `hostPath` mount or a self-generated key) — check your deployment's volume configuration directly rather than relying on a log message to catch it.
+* If a rotation legitimately changes the key material (not just the certificate metadata), the resulting DID for `did:key`/`did:jwk` changes too. This is logged explicitly as a warning with the previous and new DID, since anything that pinned the old DID (trusted issuer lists, counterparties) will need to be updated.
+
 ## Keycloak Integration
 
 The helper supports reading key material directly from a [Keycloak](https://www.keycloak.org/) instance. When configured with `-didType=keycloak`, the server exposes DID documents based on Keycloak realms using the following URL pattern:
