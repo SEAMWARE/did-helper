@@ -56,12 +56,26 @@ func NewCertWatcher(cfg Config, initialDid string, target *atomic.Pointer[DidSna
 			watcher.Close()
 			return nil, err
 		}
-		if _, err := os.Lstat(filepath.Join(dir, dataSymlinkName)); err != nil {
-			logger.Warn(
-				"Watched directory has no '..data' atomic-writer entry; if it is mounted via subPath, "+
-					"Kubernetes will never propagate Secret/ConfigMap rotations here and this watcher will not see updates. "+
-					"Mount the whole volume (no subPath) for live certificate reload to work.",
-				zap.String("dir", dir),
+	}
+
+	// A watched path that is itself a symlink but has no sibling "..data" entry looks like a
+	// Kubernetes Secret/ConfigMap mount whose atomic-writer symlink layer got bypassed (e.g. a
+	// subPath mount), where rotations are never propagated. A plain regular file (bind mount,
+	// hostPath, or a locally generated key) isn't a symlink at all, so it never triggers this.
+	for _, path := range paths {
+		if path == "" {
+			continue
+		}
+		info, err := os.Lstat(path)
+		if err != nil || info.Mode()&os.ModeSymlink == 0 {
+			continue
+		}
+		if _, err := os.Lstat(filepath.Join(filepath.Dir(path), dataSymlinkName)); err != nil {
+			logger.Info(
+				"Watched file is a symlink with no sibling '..data' entry; if this is a Kubernetes "+
+					"Secret/ConfigMap mounted via subPath, rotations are never propagated here and this "+
+					"watcher will not see updates. Mount the whole volume (no subPath) for live reload to work.",
+				zap.String("path", path),
 			)
 		}
 	}
