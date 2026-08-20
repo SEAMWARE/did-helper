@@ -19,6 +19,23 @@ const reloadDebounceWindow = 500 * time.Millisecond
 // mid-write when the debounce fired).
 const maxReloadRetryBackoff = 30 * time.Second
 
+// armTimer (re)starts a debounce/retry timer for duration d, safely stopping and draining any
+// existing one first so a reset never races with a timer that already fired.
+func armTimer(existing *time.Timer, d time.Duration) (*time.Timer, <-chan time.Time) {
+	if existing == nil {
+		t := time.NewTimer(d)
+		return t, t.C
+	}
+	if !existing.Stop() {
+		select {
+		case <-existing.C:
+		default:
+		}
+	}
+	existing.Reset(d)
+	return existing, existing.C
+}
+
 // dataSymlinkName is the atomic-writer symlink Kubernetes re-points on Secret/ConfigMap
 // volume rotation. The mounted file names themselves (e.g. tls.crt) are static symlinks
 // through this entry, so the real rotation event arrives on "..data", not on the file name.
@@ -128,18 +145,7 @@ func (w *CertWatcher) Start(ctx context.Context) {
 				}
 
 				backoff = reloadDebounceWindow
-				if pending == nil {
-					pending = time.NewTimer(reloadDebounceWindow)
-				} else {
-					if !pending.Stop() {
-						select {
-						case <-pending.C:
-						default:
-						}
-					}
-					pending.Reset(reloadDebounceWindow)
-				}
-				pendingC = pending.C
+				pending, pendingC = armTimer(pending, reloadDebounceWindow)
 
 			case err, ok := <-w.watcher.Errors:
 				if !ok {
@@ -152,8 +158,7 @@ func (w *CertWatcher) Start(ctx context.Context) {
 				pendingC = nil
 				if err := w.reload(); err != nil {
 					w.logger.Warn("Failed to reload certificate; retrying", zap.Error(err), zap.Duration("retryIn", backoff))
-					pending = time.NewTimer(backoff)
-					pendingC = pending.C
+					pending, pendingC = armTimer(pending, backoff)
 					backoff *= 2
 					if backoff > maxReloadRetryBackoff {
 						backoff = maxReloadRetryBackoff
