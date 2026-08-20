@@ -2,6 +2,9 @@ package did
 
 import (
 	"crypto/x509"
+	"encoding/json"
+	"fmt"
+	"strings"
 
 	"github.com/lestrrat-go/jwx/v3/jwk"
 )
@@ -42,4 +45,51 @@ type Config struct {
 type Certificates struct {
 	PublicKey  *x509.Certificate
 	PrivateKey any
+}
+
+// HasFileCert reports whether the certificate/key material is configured to be read from a
+// file on disk (PEM pair or PKCS12 keystore), as opposed to e.g. a Keycloak-backed setup.
+func (c Config) HasFileCert() bool {
+	return c.CertPath != "" || c.KeyPath != "" || c.KeystorePath != ""
+}
+
+func ResolveDID(cfg Config) (string, error) {
+	switch cfg.DidType {
+	case "key":
+		return GetDIDKey(cfg)
+	case "jwk":
+		return GetDIDJWKFromKey(cfg)
+	case "web":
+		return GetDIDWeb(cfg.HostUrl)
+	case "keycloak":
+		if cfg.KeycloakRealm != "" {
+			return GetDIDWeb(cfg.HostUrl)
+		}
+		return "", nil
+	default:
+		return "", fmt.Errorf("did type %s is not supported", cfg.DidType)
+	}
+}
+
+func BuildOutput(cfg *Config, resultingDid string) ([]byte, error) {
+	switch cfg.OutputFormat {
+	case "json":
+		didJson := Did{IssuerDid: []string{"https://www.w3.org/ns/did/v1"}, Id: resultingDid}
+		return json.Marshal(didJson)
+	case "env":
+		return []byte("DID=" + resultingDid), nil
+	case "json_jwk":
+		if cfg.CertUrl == "" {
+			cfg.CertUrl = strings.TrimSuffix(cfg.HostUrl, "/") + "/.well-known/tls.crt"
+		}
+		keySet, err := GenerateJWK(*cfg)
+		if err != nil {
+			return nil, fmt.Errorf("error generating keyset: %w", err)
+		}
+		verificationMethod := VerificationMethod{Id: resultingDid, Type: "JsonWebKey2020", Controller: resultingDid, PublicKeyJwk: keySet}
+		didJson := Did{Context: []string{"https://www.w3.org/ns/did/v1"}, Id: resultingDid, VerificationMethod: []VerificationMethod{verificationMethod}}
+		return json.MarshalIndent(didJson, "", "  ")
+	default:
+		return nil, fmt.Errorf("output format %s is not supported", cfg.OutputFormat)
+	}
 }

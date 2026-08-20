@@ -14,8 +14,9 @@ import (
 )
 
 type BaseServer struct {
-	Server *http.Server
-	Logger *zap.Logger
+	Server  *http.Server
+	Logger  *zap.Logger
+	Cleanup func()
 }
 
 func buildDidPath(basepath, filename string) string {
@@ -43,6 +44,19 @@ func (s *BaseServer) Start() error {
 	<-ctx.Done()
 
 	s.Logger.Info("Shutdown signal received. Initiating graceful shutdown...")
+
+	if s.Cleanup != nil {
+		cleanupDone := make(chan struct{})
+		go func() {
+			s.Cleanup()
+			close(cleanupDone)
+		}()
+		select {
+		case <-cleanupDone:
+		case <-time.After(5 * time.Second):
+			s.Logger.Warn("Cleanup did not complete within timeout, proceeding with shutdown anyway")
+		}
+	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
