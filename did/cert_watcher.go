@@ -43,19 +43,19 @@ const dataSymlinkName = "..data"
 
 // CertWatcher watches the directories backing a Config's certificate/key/keystore paths
 // and, on a relevant change, regenerates the DID document and cert PEM and stores them
-// into target so DidServer can serve the new content without recomputing per request.
+// into snapshotTarget so DidServer can serve the new content without recomputing per request.
 type CertWatcher struct {
-	watcher  *fsnotify.Watcher
-	cfg      Config
-	target   *atomic.Pointer[DidSnapshot]
-	logger   *zap.Logger
-	relevant map[string]struct{}
-	lastDid  string
-	cancel   context.CancelFunc
-	done     chan struct{}
+	watcher        *fsnotify.Watcher
+	cfg            Config
+	snapshotTarget *atomic.Pointer[DidSnapshot]
+	logger         *zap.Logger
+	relevant       map[string]struct{}
+	lastDid        string
+	cancel         context.CancelFunc
+	done           chan struct{}
 }
 
-func NewCertWatcher(cfg Config, initialDid string, target *atomic.Pointer[DidSnapshot], logger *zap.Logger) (*CertWatcher, error) {
+func NewCertWatcher(cfg Config, initialDid string, snapshotTarget *atomic.Pointer[DidSnapshot], logger *zap.Logger) (*CertWatcher, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
@@ -103,12 +103,12 @@ func NewCertWatcher(cfg Config, initialDid string, target *atomic.Pointer[DidSna
 	}
 
 	return &CertWatcher{
-		watcher:  watcher,
-		cfg:      cfg,
-		target:   target,
-		logger:   logger,
-		relevant: relevant,
-		lastDid:  initialDid,
+		watcher:        watcher,
+		cfg:            cfg,
+		snapshotTarget: snapshotTarget,
+		logger:         logger,
+		relevant:       relevant,
+		lastDid:        initialDid,
 	}, nil
 }
 
@@ -209,7 +209,7 @@ func (w *CertWatcher) reload() (err error) {
 		return err
 	}
 
-	w.target.Store(&DidSnapshot{DidJSON: didJSON, TlsCRT: certPEM})
+	w.snapshotTarget.Store(&DidSnapshot{DidJSON: didJSON, TlsCRT: certPEM})
 	return nil
 }
 
