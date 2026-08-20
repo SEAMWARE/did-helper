@@ -16,7 +16,43 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"software.sslmate.com/src/go-pkcs12"
 )
+
+const testKeystorePassword = "test-password"
+
+// generateTestKeyStore generates a fresh P-256 key/cert pair and encodes it as a PKCS12
+// keystore, mirroring the -keystorePath/-keystorePassword deployment path.
+func generateTestKeyStore(t *testing.T) []byte {
+	t.Helper()
+
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "cert-watcher-keystore-test"},
+		NotBefore:    time.Now(),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("failed to create certificate: %v", err)
+	}
+	cert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		t.Fatalf("failed to parse certificate: %v", err)
+	}
+
+	pfxData, err := pkcs12.Encode(rand.Reader, priv, cert, nil, testKeystorePassword)
+	if err != nil {
+		t.Fatalf("failed to encode keystore: %v", err)
+	}
+	return pfxData
+}
 
 func generateTestKeyPair(t *testing.T) (certPEM, keyPEM []byte) {
 	t.Helper()
@@ -167,5 +203,93 @@ func TestCertWatcherK8sRotation(t *testing.T) {
 	}
 	if newDid == initialDid {
 		t.Fatalf("expected the DID to change after rotating the key material, both are %s", initialDid)
+	}
+}
+
+// TestCertWatcherKeystoreRotation exercises the PKCS12 keystore path (-keystorePath), which
+// goes through GetCertFromKeyStore instead of the PEM loader and had no rotation coverage.
+func TestCertWatcherKeystoreRotation(t *testing.T) {
+	dir := t.TempDir()
+	keystorePath := filepath.Join(dir, "keystore.pfx")
+
+	if err := os.WriteFile(keystorePath, generateTestKeyStore(t), 0644); err != nil {
+		t.Fatalf("failed to write initial keystore: %v", err)
+	}
+
+	cfg := Config{
+		KeystorePath:     keystorePath,
+		KeystorePassword: testKeystorePassword,
+		DidType:          "key",
+		KeyType:          "P-256",
+		OutputFormat:     "json",
+	}
+	if err := LoadCertificates(&cfg); err != nil {
+		t.Fatalf("initial LoadCertificates failed: %v", err)
+	}
+	initialDid, err := ResolveDID(cfg)
+	if err != nil {
+		t.Fatalf("initial ResolveDID failed: %v", err)
+	}
+
+	initialDidJSON, err := BuildOutput(&cfg, initialDid)
+	if err != nil {
+		t.Fatalf("initial BuildOutput failed: %v", err)
+	}
+	initialCertPEM, err := GetCert(cfg)
+	if err != nil {
+		t.Fatalf("initial GetCert failed: %v", err)
+	}
+
+	var content atomic.Pointer[DidSnapshot]
+	content.Store(&DidSnapshot{DidJSON: initialDidJSON, TlsCRT: initialCertPEM})
+
+	watcher, err := NewCertWatcher(cfg, initialDid, &content, zap.NewNop())
+	if err != nil {
+		t.Fatalf("NewCertWatcher failed: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	watcher.Start(ctx)
+	defer func() {
+		if err := watcher.Close(); err != nil {
+			t.Errorf("watcher.Close() failed: %v", err)
+		}
+	}()
+
+	// Rotate by overwriting the keystore file directly (the generic, non-k8s-specific path;
+	// the atomic-writer symlink-swap detection itself is already covered by
+	// TestCertWatcherK8sRotation and doesn't depend on the file format).
+	newKeystore := generateTestKeyStore(t)
+	if err := os.WriteFile(keystorePath, newKeystore, 0644); err != nil {
+		t.Fatalf("failed to overwrite keystore: %v", err)
+	}
+
+	freshCfg := cfg
+	if err := LoadCertificates(&freshCfg); err != nil {
+		t.Fatalf("failed to reload certificates for verification: %v", err)
+	}
+	expectedCertPEM, err := GetCert(freshCfg)
+	if err != nil {
+		t.Fatalf("failed to compute expected cert PEM: %v", err)
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		snap := content.Load()
+		if string(snap.TlsCRT) == string(expectedCertPEM) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("keystore rotation was not picked up within deadline; last served:\n%s", snap.TlsCRT)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	newDid, err := ResolveDID(freshCfg)
+	if err != nil {
+		t.Fatalf("ResolveDID for rotated keystore failed: %v", err)
+	}
+	if newDid == initialDid {
+		t.Fatalf("expected the DID to change after rotating the keystore, both are %s", initialDid)
 	}
 }
