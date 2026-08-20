@@ -79,6 +79,7 @@ func (s *DidServer) handleDidJSON(w http.ResponseWriter, r *http.Request) {
 	snapshot := s.content.Load()
 
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-cache")
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write(snapshot.DidJSON); err != nil {
 		s.Logger.Error("Error writing response for /did.json", zap.Error(err))
@@ -93,6 +94,7 @@ func (s *DidServer) handleTlsCRT(w http.ResponseWriter, r *http.Request) {
 	snapshot := s.content.Load()
 
 	w.Header().Set("Content-Type", "application/x-x509-ca-cert")
+	w.Header().Set("Cache-Control", "no-cache")
 	w.WriteHeader(http.StatusOK)
 
 	if _, err := w.Write(snapshot.TlsCRT); err != nil {
