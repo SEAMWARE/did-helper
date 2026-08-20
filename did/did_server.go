@@ -24,7 +24,7 @@ type DidServer struct {
 	content atomic.Pointer[DidSnapshot]
 }
 
-func NewDidServer(initial DidSnapshot, cfg Config, resultingDid string, port int, basepath string, didFilename string) *DidServer {
+func NewDidServer(initial DidSnapshot, cfg Config, resultingDid string, basepath string, didFilename string) *DidServer {
 	logger, err := zap.NewProduction()
 	if err != nil {
 		log.Fatalf("Failed to initialize Zap logger: %v", err)
@@ -38,7 +38,7 @@ func NewDidServer(initial DidSnapshot, cfg Config, resultingDid string, port int
 		BaseServer: BaseServer{
 			Logger: logger,
 			Server: &http.Server{
-				Addr:         fmt.Sprintf(":%d", port),
+				Addr:         fmt.Sprintf(":%d", cfg.ServerPort),
 				Handler:      mux,
 				ReadTimeout:  5 * time.Second,
 				WriteTimeout: 10 * time.Second,
