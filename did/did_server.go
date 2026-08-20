@@ -47,7 +47,7 @@ func NewDidServer(initial DidSnapshot, cfg Config, resultingDid string, basepath
 	}
 	s.content.Store(&initial)
 
-	if cfg.CertPath != "" || cfg.KeyPath != "" || cfg.KeystorePath != "" {
+	if cfg.HasFileCert() {
 		watcher, err := NewCertWatcher(cfg, resultingDid, &s.content, logger)
 		if err != nil {
 			logger.Warn("Could not start certificate watcher; live cert rotation is disabled", zap.Error(err))

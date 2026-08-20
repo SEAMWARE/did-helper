@@ -47,6 +47,12 @@ type Certificates struct {
 	PrivateKey any
 }
 
+// HasFileCert reports whether the certificate/key material is configured to be read from a
+// file on disk (PEM pair or PKCS12 keystore), as opposed to e.g. a Keycloak-backed setup.
+func (c Config) HasFileCert() bool {
+	return c.CertPath != "" || c.KeyPath != "" || c.KeystorePath != ""
+}
+
 func ResolveDID(cfg Config) (string, error) {
 	switch cfg.DidType {
 	case "key":
