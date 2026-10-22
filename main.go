@@ -80,6 +80,11 @@ func main() {
 		zap.L().Sugar().Fatalf("was not able to build output: %s", err)
 	}
 
+	// BuildOutput sets the default certUrl, so the warnings cover the URL actually published
+	for _, warning := range did.InsecureUrlWarnings(cfg) {
+		zap.L().Sugar().Warn(warning)
+	}
+
 	switch {
 	case cfg.OutputFile != "":
 		if err := os.WriteFile(cfg.OutputFile, fileContent, 0644); err != nil {

@@ -8,7 +8,9 @@ The tool is provided as a plain executable or as container.
 
 ### Container
 
-The container provides the capability to generate key material (either RSA or EC) if no KEYSTORE_PATH or CERT_URL is provided.
+The container provides the capability to generate key material (either RSA or EC) if no KEYSTORE_PATH, CERT_PATH, KEY_PATH, CERT_URL or KEYCLOAK_HOST is provided.
+
+When key material is provided, nothing is written to the container filesystem, so it can run with a read-only root filesystem (e.g. `readOnlyRootFilesystem: true` in Kubernetes). To generate key material with a read-only root filesystem, mount a writable volume (e.g. an `emptyDir`) at `/cert`.
 
 ```shell
     docker run -v $(pwd)/cert:/cert quay.io/wi_stefan/did-helper
@@ -30,8 +32,8 @@ The container can be configured, using the following environment-variables:
 | OUTPUT_FILE | File to write the did, format depends on the requested format. Will not write the file if empty. | string | "/cert/did.json" |
 | DID_TYPE | Type of the did to generate. | "key", "jwk", "web" or "keycloak" | "key" |
 | KEY_TYPE | Type of the key provided. | "P-256", "P-384" or "ED-25519" | "P-256" |
-| HOST_URL | Base URL where the DID document will be located, excluding 'did.json'. (e.g., https://example.com/alice for https://example.com/alice/did.json). Required for did:web | |
-| CERT_URL | URL to retrieve the public certificate | string | `HOST_URL` + `/.well-known/tls.crt`
+| HOST_URL | Base URL where the DID document will be located, excluding 'did.json'. (e.g., https://example.com/alice for https://example.com/alice/did.json). Required for did:web. Should use https, since did:web is always resolved over https; a warning is logged otherwise. | |
+| CERT_URL | URL to retrieve the public certificate. Published as `x5u` with the `json_jwk` format, so it should use https; a warning is logged otherwise. | string | `HOST_URL` + `/.well-known/tls.crt`
 | RUN_SERVER | Run a server with /did.json and /.well-known/tls.crt endpoints | false
 | SERVER_PORT | Server port | 8080 |
 | KEYCLOAK_HOST | Base URL of the Keycloak instance used to fetch JWKS for realm-based DID documents (e.g., `https://keycloak.example.com`). Required when `DID_TYPE=keycloak`. | string | |
