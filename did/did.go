@@ -71,6 +71,19 @@ func ResolveDID(cfg Config) (string, error) {
 	}
 }
 
+// InsecureUrlWarnings lists the configured URLs that will be published without TLS. They are
+// only reported, since plain http is still useful for local development.
+func InsecureUrlWarnings(cfg Config) []string {
+	var warnings []string
+	if cfg.HostUrl != "" && !strings.HasPrefix(cfg.HostUrl, "https://") {
+		warnings = append(warnings, fmt.Sprintf("hostUrl '%s' does not use https; did:web is always resolved over https", cfg.HostUrl))
+	}
+	if cfg.OutputFormat == "json_jwk" && cfg.CertUrl != "" && !strings.HasPrefix(cfg.CertUrl, "https://") {
+		warnings = append(warnings, fmt.Sprintf("certUrl '%s' does not use https; it is published as x5u in the DID document", cfg.CertUrl))
+	}
+	return warnings
+}
+
 func BuildOutput(cfg *Config, resultingDid string) ([]byte, error) {
 	switch cfg.OutputFormat {
 	case "json":
