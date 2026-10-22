@@ -8,7 +8,9 @@ STORE_PASS="${STORE_PASS:-changeit}"
 
 cd /cert
 
-if [[ -z "${KEYSTORE_PATH:-}" ]] && [[ -z "${CERT_URL:-}" ]] && [[ -z "${KEYCLOAK_HOST:-}" ]]; then
+# key material is only generated when none is provided (keystore, PEM files, remote cert or Keycloak)
+if [[ -z "${KEYSTORE_PATH:-}" ]] && [[ -z "${CERT_PATH:-}" ]] && [[ -z "${KEY_PATH:-}" ]] \
+  && [[ -z "${CERT_URL:-}" ]] && [[ -z "${KEYCLOAK_HOST:-}" ]]; then
   case "$KEY_TYPE_TO_GENERATE" in
     EC)
       case "$KEY_TYPE" in
@@ -23,7 +25,7 @@ if [[ -z "${KEYSTORE_PATH:-}" ]] && [[ -z "${CERT_URL:-}" ]] && [[ -z "${KEYCLOA
           openssl ec -in private-key.pem -pubout -out public-key.pem
           ;;
         *)
-          echo "Unsupported EC curve: $EC_CURVE. Use P-256 or P-384."
+          echo "Unsupported EC curve: $KEY_TYPE. Use P-256 or P-384."
           exit 1
           ;;
       esac
@@ -43,7 +45,7 @@ if [[ -z "${KEYSTORE_PATH:-}" ]] && [[ -z "${CERT_URL:-}" ]] && [[ -z "${KEYCLOA
       exit 1
       ;;
   esac
-  echo -e "Generating certificate\nC=${COUNTRY}\nST=${STATE}\nL=${LOCALITY}\nO=${ORGANIZATION}\CN=${COMMON_NAME}"
+  echo -e "Generating certificate\nC=${COUNTRY}\nST=${STATE}\nL=${LOCALITY}\nO=${ORGANIZATION}\nCN=${COMMON_NAME}"
 
   openssl req -new -x509 -key private-key.pem -out cert.pem -days 360 \
     -subj "/C=${COUNTRY:-ES}/ST=${STATE:-NA}/L=${LOCALITY:-NA}/O=${ORGANIZATION:-NA}/CN=${COMMON_NAME:-localhost}"
